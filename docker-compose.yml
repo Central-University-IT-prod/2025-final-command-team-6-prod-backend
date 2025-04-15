@@ -1,0 +1,66 @@
+services:
+    grafana:
+        extends:
+            file: docker-compose.base.yml
+            service: grafana
+        volumes:
+            - grafana_data:/var/lib/grafana
+
+    nginx:
+        extends:
+            file: docker-compose.base.yml
+            service: nginx
+        depends_on:
+            - api
+            - grafana
+            - nginx-s3-gateway
+
+    api:
+        extends:
+            file: docker-compose.base.yml
+            service: api
+        
+        volumes:
+            - "./src/crudik/adapters/db/alembic/migrations/versions/:/home/app/src/crudik/adapters/db/alembic/migrations/versions/"
+
+        depends_on:
+            db:
+                condition: service_healthy
+            minio:
+                condition: service_healthy
+    
+
+
+    minio:
+        extends:
+            file: docker-compose.base.yml
+            service: minio
+        volumes:
+            - minio_data:/data
+
+    nginx-s3-gateway:
+        extends:
+            file: docker-compose.base.yml
+            service: nginx-s3-gateway
+        depends_on:
+            minio:
+                condition: service_healthy
+
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        volumes:
+            - pg_data:/var/lib/postgresql/data/
+
+    watchtower:
+        image: containrrr/watchtower
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /root/.docker/config.json:/config.json
+        command: --interval 60
+
+volumes:
+    pg_data:
+    grafana_data:
+    minio_data:

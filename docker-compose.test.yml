@@ -1,0 +1,52 @@
+services:
+    nginx:
+        extends:
+            file: docker-compose.base.yml
+            service: nginx
+        depends_on:
+            - api
+            - nginx-s3-gateway
+    tests:
+        restart: no
+        extends:
+            file: docker-compose.base.yml
+            service: code
+        container_name: tests
+        command: 
+            sh -c "coverage run --source src -m pytest && coverage report && coverage xml -o ./cov/coverage.xml"
+        environment:
+            - API_URL=http://nginx:80/
+        volumes:
+          - ./cov/:/home/app/cov
+        depends_on:
+            nginx:
+                condition: service_healthy
+
+    api:
+        extends:
+            file: docker-compose.base.yml
+            service: api
+        depends_on:
+            db:
+                condition: service_healthy
+            minio:
+                condition: service_healthy
+
+    minio:
+        extends:
+            file: docker-compose.base.yml
+            service: minio
+
+    nginx-s3-gateway:
+        extends:
+            file: docker-compose.base.yml
+            service: nginx-s3-gateway
+        depends_on:
+            minio:
+                condition: service_healthy
+
+
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db

@@ -1,0 +1,103 @@
+services:
+    grafana:
+        image: grafana/grafana:latest
+        container_name: grafana
+        ports:
+            - "3000:3000"
+        environment:
+            GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+        volumes:
+            - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+            - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+            - ./deploy/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+            - grafana_data:/var/lib/grafana
+        depends_on:
+            db:
+                condition: service_healthy
+
+    nginx:
+        image: nginx:1.23.3
+        container_name: nginx
+        ports:
+            - "80:80"
+            - "443:443"
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:80/ping/" ]
+            interval: 4s
+        volumes:
+            - ./deploy/nginx/nginx.ssl.conf:/etc/nginx/nginx.conf
+            - ./deploy/nginx/ssl/:/ssl/
+        depends_on:
+            - api
+            - grafana
+            - nginx-s3-gateway
+
+    api:
+        container_name: api
+        image: REDACTED:5050/team-6/prod-backend:latest
+        env_file:
+            - "./deploy/.env.example"
+        command: [ "crudik", "run", "api" ]
+        expose:
+            - 5000
+        restart: on-failure
+
+        depends_on:
+            db:
+                condition: service_healthy
+            minio:
+                condition: service_healthy
+
+
+    minio:
+        image: minio/minio:latest
+        container_name: minio
+        expose:
+          - "9000"
+          - "9001"
+        env_file:
+            - ./deploy/.env.minio
+        command: server /data --console-address ":9001"
+        volumes:
+            - minio_data:/data
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+            interval: 2s
+        
+
+    nginx-s3-gateway:
+        image: ghcr.io/nginxinc/nginx-s3-gateway/nginx-oss-s3-gateway:latest-njs-oss-20220310
+        container_name: nginx-s3-gateway
+        env_file:
+            - ./deploy/.env.minio
+        expose:
+            - "80"
+        depends_on:
+            minio:
+                condition: service_healthy
+
+    db:
+        container_name: persistence
+        image: postgres:14.1-alpine
+        env_file:
+            - ./deploy/.env.pg
+        expose:
+          - 5432
+        volumes:
+            - pg_data:/var/lib/postgresql/data/
+            - ./deploy/init.sql:/docker-entrypoint-initdb.d/init.sql
+        healthcheck:
+            test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+            interval: 2s
+
+    watchtower:
+        image: containrrr/watchtower
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /home/ubuntu/.docker/config.json:/config.json
+        command: --interval 60
+
+volumes:
+    pg_data:
+    grafana_data:
+    minio_data:
